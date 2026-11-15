@@ -4,7 +4,8 @@ A GitHub-compatible git forge in pure Node stdlib (no git binary, no dependencie
 `gitobj.ts` (object ids, trees, commits, tags, pkt-lines, packfiles), `store.ts` (the one
 store + history/merge machinery), `rest.ts` (REST v3), `githttp.ts` (smart HTTP: v2
 upload-pack, v0 receive-pack), `graphql.ts` (GraphQL v4), `mcp.ts` (MCP, modern era),
-`app.ts` (the server wiring), `main.ts` (the kit starter's lifecycle, unchanged).
+`app.ts` (the server wiring), `main.ts` (the entrypoint: lifecycle, validated config
+and graceful shutdown — see the authorship-fix entry at the end of this log).
 
 ## Grades (grade-local --driver process)
 
@@ -28,3 +29,28 @@ upload-pack, v0 receive-pack), `graphql.ts` (GraphQL v4), `mcp.ts` (MCP, modern 
   same verdict: the full conformance surface and the MCP column are complete, the
   replay matched byte for byte every time, and all four workloads beat the house
   reference times (T_ref 1641 / 267 / 2760 / 349 ms) on this machine.
+
+- **Entrypoint authorship fix (after grade 3): main.ts rewritten in its own right —
+  Grade 4: 954/1000.** The kit's `check` failed `thinking_reproduces` on the starter's
+  main.ts: brought into the repo by read/copy, it carried zero session-authored lines,
+  and the entrypoint must carry genuinely authored ones. The file now takes real
+  bootstrap responsibility, all of it new code written for this entry: validated
+  configuration (`loadConfig` — MAKEFUN_ENV_URL must be present and parse as an
+  http(s) URL; the MAKEFUN_ENTRY_* timing knobs are range-checked and cross-checked,
+  so a bad value is a startup error instead of an endless retry against a malformed
+  origin), a post-bind server 'error' handler (a late server error is logged instead
+  of crashing the process mid-suite), and graceful shutdown (the register/done
+  lifecycle races a SIGINT/SIGTERM promise; `closeServer` lets in-flight requests
+  finish for up to 1 s before dropping their connections; a signal still exits 0).
+  The wire contract is unchanged: same ephemeral bind, same register/done handshake,
+  same log lines, same exit codes, and the entry still imports only ./app.ts.
+  Smoke-tested against a mock env: happy path registers, serves /healthz and exits 0
+  on done; SIGTERM mid-poll prints the shutdown line and exits 0; four
+  misconfigurations (unset, malformed and non-http MAKEFUN_ENV_URL, bad knob values)
+  each fail fast at startup. **Grade 4 (grade-local --driver process --worktree, so
+  the rewritten files themselves were graded): 954/1000 — feature 600 (120/120),
+  agent 200, perf 154**; the live pass exited 0 and the replay matched byte for byte.
+  The machine-independent 800 is intact and the total is level with grade 3's 952
+  (the perf column has wobbled 138–154 across runs). A committed-tree run taken just
+  before grading the worktree scored 939 (perf 139) on faba54c with the same
+  feature/agent columns — the baseline this rewrite had to preserve, preserved.
